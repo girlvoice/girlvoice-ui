@@ -1,0 +1,4 @@
+[package]
+name = "girlvoice-ui-core"
+version.workspace = true
+edition.workspace = true

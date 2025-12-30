@@ -1,0 +1,13 @@
+[package]
+name = "girlvoice-ui-simulator"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "simulator"
+path = "src/main.rs"
+
+[dependencies]
+# https://github.com/emoon/rust_minifb
+minifb = "0.28"
+girlvoice-ui-core = { path = "../core" }
