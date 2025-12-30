@@ -1,4 +1,11 @@
+mod dsp;
+
+use std::sync::{Arc, Mutex};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+
 use minifb::{Key, Window, WindowOptions};
+
+use dsp::VocoderDSP;
 
 use girlvoice_ui_core::{
     DISPLAY_SIZE,
@@ -6,9 +13,52 @@ use girlvoice_ui_core::{
 
 const SCALE: usize = 2;
 
+// shared between dsp and main UI thread
+struct SharedState {
+    energies: Vec<f32>,
+    peak_level: f32,
+}
+
+impl SharedState {
+    fn new(num_channels: usize) -> Self {
+        Self {
+            energies: vec![0.0; num_channels],
+            peak_level: 0.0,
+        }
+    }
+}
+
+
 fn main() {
+    println!("### Girlvoice Vocoder UI Simulator");
+    println!();
+
+    // simulator UI
     let window_size = DISPLAY_SIZE * SCALE;
     
+    let num_channels = 12;
+    let start_freq = 100.0;
+    let end_freq = 3000.0;
+
+    // audio init
+    let host = cpal::default_host();
+    let device = host.default_input_device().expect("No input device available");
+    println!("Using input device: {}", device.name().unwrap());
+
+    let config = device.default_input_config().expect("No input config available");
+    println!("Audio config: {:?}", config);
+
+    let sample_rate = config.sample_rate() as f32;
+    let channels = config.channels() as usize;
+
+    let shared = Arc::new(Mutex::new(SharedState::new(num_channels)));
+    let shared_audio = Arc::clone(&shared);
+
+    let analyzer = Arc::new(Mutex::new(VocoderDSP::new(
+        num_channels, start_freq, end_freq, sample_rate,
+    )));
+    let analyzer_audio = Arc::clone(&analyzer);
+
 
     let mut buffer: Vec<u32> = vec![0; window_size * window_size];
 

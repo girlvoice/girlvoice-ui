@@ -11,3 +11,6 @@ path = "src/main.rs"
 # https://github.com/emoon/rust_minifb
 minifb = "0.28"
 girlvoice-ui-core = { path = "../core" }
+
+# audio
+cpal = "0.17"
