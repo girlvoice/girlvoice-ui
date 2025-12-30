@@ -3,17 +3,17 @@ mod dsp;
 use std::sync::{Arc, Mutex};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
-use minifb::{Key, Window, WindowOptions};
+use minifb::{Key, Window, WindowOptions, Scale};
 
 use dsp::VocoderDSP;
 
 use girlvoice_ui_core::{
-    DISPLAY_SIZE,
+    Color, ColorPalette, palette, DISPLAY_SIZE
 };
 
 const SCALE: usize = 2;
 
-// shared between dsp and main UI thread
+// shared between DSP and main UI thread
 struct SharedState {
     energies: Vec<f32>,
     peak_level: f32,
@@ -27,7 +27,6 @@ impl SharedState {
         }
     }
 }
-
 
 fn main() {
     println!("### Girlvoice Vocoder UI Simulator");
@@ -59,30 +58,140 @@ fn main() {
     )));
     let analyzer_audio = Arc::clone(&analyzer);
 
+    // from fft example
+    let audio_callback = move |data: &[f32], _: &cpal::InputCallbackInfo| {
+        let mut analyzer = analyzer_audio.lock().unwrap();
+        let mut shared = shared_audio.lock().unwrap();
+        
+        let mut peak = 0.0f32;
+        for frame in data.chunks(channels) {
+            let sample = if channels > 1 {
+                frame.iter().sum::<f32>() / channels as f32
+            } else {
+                frame[0]
+            };
+            peak = peak.max(sample.abs());
+            analyzer.process(sample);
+        }
+        
+        shared.energies.copy_from_slice(analyzer.energies());
+        shared.peak_level = shared.peak_level * 0.9 + peak * 0.1;
+    };
 
-    let mut buffer: Vec<u32> = vec![0; window_size * window_size];
+    let stream = match config.sample_format() {
+        cpal::SampleFormat::F32 => device.build_input_stream(
+            &config.into(),
+            audio_callback,
+            |err| eprintln!("Audio error: {}", err),
+            None
+        ).unwrap(),
+        cpal::SampleFormat::I16 => {
+            let analyzer_audio = Arc::clone(&analyzer);
+            let shared_audio = Arc::clone(&shared);
+            device.build_input_stream(
+                &config.into(),
+                move |data: &[i16], _: &cpal::InputCallbackInfo| {
+                    let mut analyzer = analyzer_audio.lock().unwrap();
+                    let mut shared = shared_audio.lock().unwrap();
+                    let mut peak = 0.0f32;
+                    for frame in data.chunks(channels) {
+                        let sample = if channels > 1 {
+                            frame.iter().map(|&s| s as f32 / 32768.0).sum::<f32>() / channels as f32
+                        } else {
+                            frame[0] as f32 / 32768.0
+                        };
+                        peak = peak.max(sample.abs());
+                        analyzer.process(sample);
+                    }
+                    shared.energies.copy_from_slice(analyzer.energies());
+                    shared.peak_level = shared.peak_level * 0.9 + peak * 0.1; // moving avg
+                },
+                |err| eprintln!("Audio error: {}", err),
+                None
+            ).unwrap()
+        },
+        format => panic!("Unsupported sample format: {:?}", format)
+    };
 
+    stream.play().expect("Audio stream failed");
+    println!("Audio stream started\n");
+
+    
     let mut window = Window::new(
-        "Test - ESC to exit",
+        "Girlvoice Visualizer - ESC to exit",
         window_size,
         window_size,
-        WindowOptions::default(),
+        WindowOptions { scale: Scale::X1, ..Default::default() }
     )
     .unwrap_or_else(|e| {
         panic!("{}", e);
     });
 
-    // Limit to max ~60 fps update rate
     window.set_target_fps(30);
 
-    while window.is_open() && !window.is_key_down(Key::Escape) {
-        for i in buffer.iter_mut() {
-            *i = 0; // write something more funny here!
-        }
+    let mut buffer = vec![0u32; DISPLAY_SIZE * DISPLAY_SIZE];
 
-        // We unwrap here as we want this code to exit if it fails. Real applications may want to handle this in a different way
+    while window.is_open() && !window.is_key_down(Key::Escape) {
+        let energies = {
+            let shared = shared.lock().unwrap();
+            shared.energies.clone()
+        };
+
+        draw_level_meters(&mut buffer, &energies);
+
+        // scale up screen
+        let scaled_buffer: Vec<u32> = if SCALE > 1 {
+            let mut scaled = vec![0u32; window_size * window_size];
+            for y in 0..DISPLAY_SIZE {
+                for x in 0..DISPLAY_SIZE {
+                    let color = buffer[y * DISPLAY_SIZE + x];
+                    for sy in 0..SCALE {
+                        for sx in 0..SCALE {
+                            scaled[(y * SCALE + sy) * window_size + (x * SCALE + sx)] = color;
+                        }
+                    }
+                }
+            }
+            scaled
+        } else {
+            buffer.clone()
+        };
+
         window
-            .update_with_buffer(&buffer, window_size, window_size)
+            .update_with_buffer(&scaled_buffer, window_size, window_size)
             .unwrap();
+    }
+}
+
+
+fn draw_level_meters(buffer: &mut [u32], energies: &[f32]) {
+    let meter_width = 4;
+    let meter_height = 40;
+    let spacing = 2;
+    let (start_x, start_y) = (5, 5);
+    
+    for (i, &energy) in energies.iter().enumerate() {
+        let x = start_x + (i % 16) * (meter_width + spacing);
+        let y = start_y;
+        
+        for dy in 0..meter_height {
+            for dx in 0..meter_width {
+                let (px, py) = (x + dx, y + dy);
+                if px < DISPLAY_SIZE && py < DISPLAY_SIZE {
+                    buffer[py * DISPLAY_SIZE + px] = 0xFF202020;
+                }
+            }
+        }
+        
+        let level_height = (energy * meter_height as f32) as usize;
+        let color = palette::rainbow(i as f32 / energies.len() as f32);
+        for dy in 0..level_height {
+            for dx in 0..meter_width {
+                let (px, py) = (x + dx, y + meter_height - 1 - dy);
+                if px < DISPLAY_SIZE && py < DISPLAY_SIZE {
+                    buffer[py * DISPLAY_SIZE + px] = color.to_argb32();
+                }
+            }
+        }
     }
 }

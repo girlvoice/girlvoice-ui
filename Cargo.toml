@@ -3,6 +3,10 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 
+[workspace.dependencies]
+libm = "0.2"
+
 [workspace]
 members = ["simulator", "core"]
 resolver = "2"
+
