@@ -20,10 +20,9 @@ impl ModeKind {
     }
 }
 
-// Harmonic Mouth - A single closed figure where each channel adds harmonic deformation
-// Base shape is a circle: x = cos(t), y = sin(t)
-// Each channel adds: x += A_n * cos(n*t + phi), y += A_n * sin(n*t + phi')
-// This creates a morphing, closed loop that responds to voice.
+// Harmonic Loop. A single closed figure where each channel adds harmonic deformation
+// - Base shape of a circle, x = cos(t), y = sin(t)
+// - Each channel adds x += A_n * cos(n*t + phi), y += A_n * sin(n*t + phi')
 pub struct HarmonicLoop {
     num_channels: usize,
     smoothers: [EnvelopeSmoother; MAX_CHANNELS],
@@ -46,7 +45,7 @@ impl HarmonicLoop {
             energies: [0.0; MAX_CHANNELS],
             rotation: LFO::new(0.02),
             harmonic_phases: core::array::from_fn(|i| {
-                LFO::new_with_phase(0.08 + (i as f32 * 0.03), i as f32 * 0.4)
+                LFO::new_with_phase(0.08 + (i as f32 * 0.03), i as f32 * 0.4) // i made these up and it looks good
             }),
             total_energy: EnvelopeSmoother::new(60.0, 2.0, 50.0),
             resolution: 200,

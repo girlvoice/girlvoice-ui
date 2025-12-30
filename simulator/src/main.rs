@@ -150,6 +150,15 @@ fn main() {
         // run main shader
         visualizer.update(dt, &energies);
 
+        // fade buffer for trails
+        let fade = 0.7;
+        for pixel in framebuffer.iter_mut() {
+            let r = ((*pixel >> 16) & 0xFF) as f32 * fade;
+            let g = ((*pixel >> 8) & 0xFF) as f32 * fade;
+            let b = (*pixel & 0xFF) as f32 * fade;
+            *pixel = 0xFF000000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
+        }
+
         let vis_brightness = 1.0;
         visualizer.render(|x, y, color| {
             if x < DISPLAY_SIZE && y < DISPLAY_SIZE {
