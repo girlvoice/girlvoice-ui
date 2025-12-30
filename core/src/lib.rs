@@ -1,7 +1,12 @@
-// display config (round 240x240 1.8" LCD, GC9A01)
-use libm::{fabsf};
+pub mod vis;
+pub use vis::{Visualizer, ModeKind};
 
+use libm::{sinf, cosf, sqrtf, fabsf};
+
+// display config (round 240x240 1.8" LCD, GC9A01)
 pub const DISPLAY_SIZE: usize = 240;
+pub const DISPLAY_CENTER: f32 = (DISPLAY_SIZE / 2) as f32;
+pub const DISPLAY_RADIUS: f32 = DISPLAY_CENTER - 10.0;
 
 // DSP config
 pub const CHANNELS: usize = 16;
@@ -125,6 +130,7 @@ impl Default for ColorPalette {
         }
     }
 }
+
 pub mod palette {
     use super::Color;
 
@@ -144,3 +150,137 @@ pub mod palette {
         Color::from_hsv(t * 360.0, 1.0, 1.0)
     }
 }
+
+
+// exponential envelope follower for smoothing values
+#[derive(Clone, Debug)]
+pub struct EnvelopeSmoother {
+    value: f32,
+    attack: f32,
+    release: f32,
+}
+
+impl EnvelopeSmoother {
+    pub fn new(sample_rate: f32, attack_ms: f32, release_ms: f32) -> Self {
+        let attack = libm::expf(-1.0 / (sample_rate * attack_ms / 1000.0));
+        let release = libm::expf(-1.0 / (sample_rate * release_ms / 1000.0));
+        Self { value: 0.0, attack, release }
+    }
+
+    pub fn process(&mut self, input: f32) -> f32 {
+        let coeff = if input > self.value { self.attack } else { self.release };
+        self.value = self.value * coeff + input * (1.0 - coeff);
+        self.value
+    }
+
+    pub fn value(&self) -> f32 {
+        self.value
+    }
+}
+
+// basic oscillator
+#[derive(Clone, Debug)]
+pub struct LFO {
+    pub phase: f32,
+    pub frequency: f32,
+}
+
+impl LFO {
+    pub fn new(frequency: f32) -> Self {
+        Self { phase: 0.0, frequency }
+    }
+
+    pub fn new_with_phase(frequency: f32, initial_phase: f32) -> Self {
+        Self { phase: initial_phase, frequency }
+    }
+
+    pub fn tick(&mut self, dt: f32) -> f32 {
+        self.phase += self.frequency * dt * core::f32::consts::TAU;
+        while self.phase > core::f32::consts::TAU {
+            self.phase -= core::f32::consts::TAU;
+        }
+        sinf(self.phase)
+    }
+
+    pub fn value(&self) -> f32 {
+        sinf(self.phase)
+    }
+}
+
+
+// draw a line using Bresenham's algorithm
+pub fn draw_line<F>(x0: i32, y0: i32, x1: i32, y1: i32, color: Color, circular_mask: bool, mut set_pixel: F)
+where
+    F: FnMut(usize, usize, Color),
+{
+    let dx = (x1 - x0).abs();
+    let dy = -(y1 - y0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx + dy;
+    let (mut x, mut y) = (x0, y0);
+
+    loop {
+        if x >= 0 && x < DISPLAY_SIZE as i32 && y >= 0 && y < DISPLAY_SIZE as i32 {
+            let (ux, uy) = (x as usize, y as usize);
+            if !circular_mask || is_in_circle(ux, uy) {
+                set_pixel(ux, uy, color);
+            }
+        }
+        if x == x1 && y == y1 { break; }
+        let e2 = 2 * err;
+        if e2 >= dy { err += dy; x += sx; }
+        if e2 <= dx { err += dx; y += sy; }
+    }
+}
+
+// draw a thick line with glow effect
+pub fn draw_thick_line<F>(x0: i32, y0: i32, x1: i32, y1: i32, thickness: i32, color: Color, circular_mask: bool, mut set_pixel: F)
+where
+    F: FnMut(usize, usize, Color),
+{
+    for offset in -thickness..=thickness {
+        let (dx, dy) = (x1 - x0, y1 - y0);
+        let len = sqrtf((dx * dx + dy * dy) as f32).max(1.0);
+        let (nx, ny) = ((-dy as f32 / len * offset as f32) as i32, (dx as f32 / len * offset as f32) as i32);
+        let fade = 1.0 - (offset.abs() as f32 / (thickness + 1) as f32);
+        draw_line(x0 + nx, y0 + ny, x1 + nx, y1 + ny, color.scale(fade * fade), circular_mask, &mut set_pixel);
+    }
+}
+
+// check if a screen point is within the display area
+pub fn is_in_circle(x: usize, y: usize) -> bool {
+    let dx = x as f32 - DISPLAY_CENTER;
+    let dy = y as f32 - DISPLAY_CENTER;
+    (dx * dx + dy * dy) <= (DISPLAY_CENTER * DISPLAY_CENTER)
+}
+
+
+// 2D point helper
+#[derive(Clone, Copy, Default)]
+pub struct Point2D {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl Point2D {
+    pub fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
+    }
+    
+    pub fn rotate(self, angle: f32) -> Self {
+        let (sin_a, cos_a) = (sinf(angle), cosf(angle));
+        Self {
+            x: self.x * cos_a - self.y * sin_a,
+            y: self.x * sin_a + self.y * cos_a,
+        }
+    }
+    
+    pub fn to_screen(self) -> (i32, i32) {
+        (
+            (DISPLAY_CENTER + self.x * DISPLAY_RADIUS) as i32,
+            (DISPLAY_CENTER + self.y * DISPLAY_RADIUS) as i32,
+        )
+    }
+}
+

@@ -14,3 +14,9 @@ girlvoice-ui-core = { path = "../core" }
 
 # audio
 cpal = "0.17"
+
+# timing
+instant = "0.1"
+
+# math
+libm = { workspace = true }

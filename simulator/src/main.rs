@@ -1,6 +1,8 @@
 mod dsp;
 
 use std::sync::{Arc, Mutex};
+use std::time::Instant; // for shader time, would be replaced by timer on MCU
+
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use minifb::{Key, Window, WindowOptions, Scale};
@@ -8,7 +10,7 @@ use minifb::{Key, Window, WindowOptions, Scale};
 use dsp::VocoderDSP;
 
 use girlvoice_ui_core::{
-    Color, ColorPalette, palette, DISPLAY_SIZE
+    Visualizer, Color, ColorPalette, palette, DISPLAY_SIZE
 };
 
 const SCALE: usize = 2;
@@ -129,22 +131,49 @@ fn main() {
 
     window.set_target_fps(30);
 
-    let mut buffer = vec![0u32; DISPLAY_SIZE * DISPLAY_SIZE];
+    let mut visualizer = Visualizer::new(num_channels);
+    let mut framebuffer = vec![0u32; DISPLAY_SIZE * DISPLAY_SIZE];
+
+    let mut last_frame = Instant::now();
+
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
+        let now = Instant::now();
+        let dt = (now - last_frame).as_secs_f32();
+        last_frame = now;
+       
         let energies = {
             let shared = shared.lock().unwrap();
             shared.energies.clone()
         };
 
-        draw_level_meters(&mut buffer, &energies);
+        // run main shader
+        visualizer.update(dt, &energies);
+
+        let vis_brightness = 1.0;
+        visualizer.render(|x, y, color| {
+            if x < DISPLAY_SIZE && y < DISPLAY_SIZE {
+                let idx = y * DISPLAY_SIZE + x;
+                let dimmed = color.scale(vis_brightness);
+                let existing = framebuffer[idx];
+                let er = ((existing >> 16) & 0xFF) as u32;
+                let eg = ((existing >> 8) & 0xFF) as u32;
+                let eb = (existing & 0xFF) as u32;
+                let nr = (er + dimmed.r as u32).min(255);
+                let ng = (eg + dimmed.g as u32).min(255);
+                let nb = (eb + dimmed.b as u32).min(255);
+                framebuffer[idx] = 0xFF000000 | (nr << 16) | (ng << 8) | nb;
+            }
+        });
+
+        draw_level_meters(&mut framebuffer, &energies);
 
         // scale up screen
-        let scaled_buffer: Vec<u32> = if SCALE > 1 {
+        let scaled_framebuffer: Vec<u32> = if SCALE > 1 {
             let mut scaled = vec![0u32; window_size * window_size];
             for y in 0..DISPLAY_SIZE {
                 for x in 0..DISPLAY_SIZE {
-                    let color = buffer[y * DISPLAY_SIZE + x];
+                    let color = framebuffer[y * DISPLAY_SIZE + x];
                     for sy in 0..SCALE {
                         for sx in 0..SCALE {
                             scaled[(y * SCALE + sy) * window_size + (x * SCALE + sx)] = color;
@@ -154,17 +183,17 @@ fn main() {
             }
             scaled
         } else {
-            buffer.clone()
+            framebuffer.clone()
         };
 
         window
-            .update_with_buffer(&scaled_buffer, window_size, window_size)
+            .update_with_buffer(&scaled_framebuffer, window_size, window_size)
             .unwrap();
     }
 }
 
 
-fn draw_level_meters(buffer: &mut [u32], energies: &[f32]) {
+fn draw_level_meters(framebuffer: &mut [u32], energies: &[f32]) {
     let meter_width = 4;
     let meter_height = 40;
     let spacing = 2;
@@ -178,7 +207,7 @@ fn draw_level_meters(buffer: &mut [u32], energies: &[f32]) {
             for dx in 0..meter_width {
                 let (px, py) = (x + dx, y + dy);
                 if px < DISPLAY_SIZE && py < DISPLAY_SIZE {
-                    buffer[py * DISPLAY_SIZE + px] = 0xFF202020;
+                    framebuffer[py * DISPLAY_SIZE + px] = 0xFF202020;
                 }
             }
         }
@@ -189,7 +218,7 @@ fn draw_level_meters(buffer: &mut [u32], energies: &[f32]) {
             for dx in 0..meter_width {
                 let (px, py) = (x + dx, y + meter_height - 1 - dy);
                 if px < DISPLAY_SIZE && py < DISPLAY_SIZE {
-                    buffer[py * DISPLAY_SIZE + px] = color.to_argb32();
+                    framebuffer[py * DISPLAY_SIZE + px] = color.to_argb32();
                 }
             }
         }

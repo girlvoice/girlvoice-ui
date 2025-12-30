@@ -322,6 +322,8 @@ version = "0.1.0"
 dependencies = [
  "cpal",
  "girlvoice-ui-core",
+ "instant",
+ "libm",
  "minifb",
 ]
 
