@@ -37,6 +37,7 @@ fn main() {
     // simulator UI
     let window_size = DISPLAY_SIZE * SCALE;
     
+    // simulator vocoder DSP
     let num_channels = 12;
     let start_freq = 100.0;
     let end_freq = 3000.0;

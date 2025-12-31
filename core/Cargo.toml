@@ -4,5 +4,6 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+# math
 libm = { workspace = true }
 fixed = "1.28"
