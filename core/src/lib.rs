@@ -272,7 +272,7 @@ impl Point2D {
         let (sin_a, cos_a) = (sinf(angle), cosf(angle));
         Self {
             x: self.x * cos_a - self.y * sin_a,
-            y: self.x * sin_a + self.y * cos_a,
+            y: self.x * sin_a + self.y * cos_a
         }
     }
     

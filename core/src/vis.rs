@@ -79,7 +79,7 @@ impl HarmonicLoop {
         
         // scale based on total energy
         let scale = 0.45 + 0.35 * self.total_energy.value();
-        Point2D::new(x * scale, y * scale).rotate(rotation)
+        Point2D::new(x * scale, y * scale).rotate(rotation) // TODO: remove rotation if resource limited
     }
 
     pub fn set_circular_mask(&mut self, enabled: bool) {
