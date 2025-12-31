@@ -1,0 +1,1 @@
+This branch replaces floating point math with fixed-point and LUTs (making use of mast multiply) for better performance when running in the VexRiscv softcore without a dedicated FPU. As opposed to CORDIC, this achieves predictable timing instead of variable iteration lengths.

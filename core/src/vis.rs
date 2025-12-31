@@ -1,10 +1,10 @@
 use crate::{
+    math::{self, Fixed, FxPoint2D},
     Color, ColorPalette, EnvelopeSmoother, LFO, Point2D,
     DISPLAY_SIZE, draw_line, draw_thick_line, is_in_circle,
 };
-use libm::{cosf, sinf, sqrtf};
 
-const MAX_CHANNELS: usize = crate::CHANNELS;
+const MAX_CHANNELS: usize = crate::MAX_CHANNELS;
 
 // available visualizers (one for now)
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,29 +57,36 @@ impl HarmonicLoop {
     }
 
     fn sample_point(&self, t: f32, rotation: f32) -> Point2D {
-        let mut x = cosf(t);
-        let mut y = sinf(t);
-        
+        // Use fixed-point LUT for all sin/cos operations
+        let t_fx = math::fx_from_f32(t);
+        let mut x = math::fx_cos(t_fx);
+        let mut y = math::fx_sin(t_fx);
+
         // add harmonics from each channel
         for i in 0..self.num_channels {
             let energy = self.energies[i];
-            if energy < 0.01 { continue; }
-            
+            if energy < 0.01 {
+                continue;
+            }
+
             // harmonic number: lower channels = lower harmonics (rounder), higher = more detail
-            let harmonic = (i + 2) as f32;
-            let phase = self.harmonic_phases[i].phase;
-            
+            let harmonic = Fixed::from_num(i + 2);
+            let phase = math::fx_from_f32(self.harmonic_phases[i].phase);
+
             // falloff for higher harmonics
-            let amp = energy * 0.35 / (1.0 + i as f32 * 0.08);
-            
+            let amp = math::fx_from_f32(energy * 0.35 / (1.0 + i as f32 * 0.08));
+
             // phase difference between X and Y creates the lissajous-like asymmetry
-            x += amp * cosf(harmonic * t + phase);
-            y += amp * sinf(harmonic * t + phase * 1.618); // golden ratio phase offset bc why not
+            let angle_x = harmonic * t_fx + phase;
+            let angle_y = harmonic * t_fx + phase * math::consts::GOLDEN_RATIO;
+            x = x + amp * math::fx_cos(angle_x);
+            y = y + amp * math::fx_sin(angle_y);
         }
-        
+
         // scale based on total energy
-        let scale = 0.45 + 0.35 * self.total_energy.value();
-        Point2D::new(x * scale, y * scale).rotate(rotation) // TODO: remove rotation if resource limited
+        let scale = math::fx_from_f32(0.45 + 0.35 * self.total_energy.value());
+        let fx_point = FxPoint2D::new(x * scale, y * scale).rotate(math::fx_from_f32(rotation));
+        Point2D::new(math::fx_to_f32(fx_point.x), math::fx_to_f32(fx_point.y))
     }
 
     pub fn set_circular_mask(&mut self, enabled: bool) {
@@ -178,8 +185,10 @@ impl HarmonicLoop {
                         if px >= 0 && px < DISPLAY_SIZE as i32 && py >= 0 && py < DISPLAY_SIZE as i32 {
                             let (ux, uy) = (px as usize, py as usize);
                             if !self.circular_mask || is_in_circle(ux, uy) {
-                                let dist = sqrtf((dx * dx + dy * dy) as f32);
-                                if dist <= 2.5 {
+                                let dist_sq = dx * dx + dy * dy;
+                                // 2.5^2 = 6.25, so compare squared distances
+                                if dist_sq <= 6 {
+                                    let dist = math::fx_to_f32(math::fx_sqrt(math::fx_from_f32(dist_sq as f32)));
                                     let b = (1.0 - dist / 2.5) * self.energies[i];
                                     set_pixel(ux, uy, color.scale(b));
                                 }

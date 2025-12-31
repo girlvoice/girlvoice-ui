@@ -1,7 +1,9 @@
-pub mod vis;
+pub mod math;
+mod vis;
 pub use vis::{Visualizer, ModeKind};
+pub use math::{Fixed, FxPoint2D};
 
-use libm::{sinf, cosf, sqrtf, fabsf};
+use libm::fabsf;
 
 // display config (round 240x240 1.8" LCD, GC9A01)
 pub const DISPLAY_SIZE: usize = 240;
@@ -9,7 +11,7 @@ pub const DISPLAY_CENTER: f32 = (DISPLAY_SIZE / 2) as f32;
 pub const DISPLAY_RADIUS: f32 = DISPLAY_CENTER - 10.0;
 
 // DSP config
-pub const CHANNELS: usize = 16;
+pub const MAX_CHANNELS: usize = 16;
 
 #[derive(Clone, Copy)]
 pub struct Color {
@@ -23,7 +25,6 @@ impl Default for Color {
         Self { r: 0, g: 0, b: 0 }
     }
 }
-
 
 impl Color {
     pub const fn new(r: u8, g: u8, b: u8) -> Self {
@@ -199,11 +200,11 @@ impl LFO {
         while self.phase > core::f32::consts::TAU {
             self.phase -= core::f32::consts::TAU;
         }
-        sinf(self.phase)
+        math::fx_to_f32(math::fx_sin(math::fx_from_f32(self.phase)))
     }
 
     pub fn value(&self) -> f32 {
-        sinf(self.phase)
+        math::fx_to_f32(math::fx_sin(math::fx_from_f32(self.phase)))
     }
 }
 
@@ -241,18 +242,20 @@ where
 {
     for offset in -thickness..=thickness {
         let (dx, dy) = (x1 - x0, y1 - y0);
-        let len = sqrtf((dx * dx + dy * dy) as f32).max(1.0);
+        let len_sq = math::fx_from_f32((dx * dx + dy * dy) as f32);
+        let len = math::fx_to_f32(math::fx_sqrt(len_sq)).max(1.0);
         let (nx, ny) = ((-dy as f32 / len * offset as f32) as i32, (dx as f32 / len * offset as f32) as i32);
         let fade = 1.0 - (offset.abs() as f32 / (thickness + 1) as f32);
         draw_line(x0 + nx, y0 + ny, x1 + nx, y1 + ny, color.scale(fade * fade), circular_mask, &mut set_pixel);
     }
 }
 
-// check if a screen point is within the display area
+// check if a screen point is within the display area (integer math)
 pub fn is_in_circle(x: usize, y: usize) -> bool {
-    let dx = x as f32 - DISPLAY_CENTER;
-    let dy = y as f32 - DISPLAY_CENTER;
-    (dx * dx + dy * dy) <= (DISPLAY_CENTER * DISPLAY_CENTER)
+    let center = (DISPLAY_SIZE / 2) as i32;
+    let dx = x as i32 - center;
+    let dy = y as i32 - center;
+    (dx * dx + dy * dy) <= (center * center)
 }
 
 
@@ -267,15 +270,7 @@ impl Point2D {
     pub fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
-    
-    pub fn rotate(self, angle: f32) -> Self {
-        let (sin_a, cos_a) = (sinf(angle), cosf(angle));
-        Self {
-            x: self.x * cos_a - self.y * sin_a,
-            y: self.x * sin_a + self.y * cos_a
-        }
-    }
-    
+
     pub fn to_screen(self) -> (i32, i32) {
         (
             (DISPLAY_CENTER + self.x * DISPLAY_RADIUS) as i32,

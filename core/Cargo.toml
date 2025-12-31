@@ -5,3 +5,4 @@ edition.workspace = true
 
 [dependencies]
 libm = { workspace = true }
+fixed = "1.28"
